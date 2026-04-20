@@ -198,6 +198,13 @@
                     const link = document.getElementById('streamLink');
                     link.href = data.stream_url;
                     link.textContent = data.stream_url;
+                    const link = document.getElementById('streamLink');
+                    link.href = data.stream_url;
+                    link.textContent = data.stream_url;
+                    
+          
+                    document.getElementById('ffmpegCommandText').textContent = data.ffmpeg_cmd;
+                    
 
                     const videoPlayer = document.getElementById('videoPlayer');
                     document.getElementById('videoPlayerContainer').style.display = 'block';
