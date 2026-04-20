@@ -3,51 +3,94 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MoGo FM | Video Converter</title>
+    <title>MOGO FM CONVERTER</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap" rel="stylesheet">
     <style>
-        :root { --primary: #8a2be2; --bg-dark: #0f0f13; --card-bg: rgba(255, 255, 255, 0.05); }
-        body { margin: 0; font-family: 'Poppins', sans-serif; background: var(--bg-dark); color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .container { width: 100%; max-width: 600px; background: var(--card-bg); border-radius: 20px; padding: 40px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        h1 { color: var(--primary); margin-bottom: 5px; }
-        .input-group { display: flex; gap: 10px; margin-bottom: 20px; }
-        input[type="text"], input[type="number"] { flex: 1; padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; font-family: 'Poppins'; }
-        .upload-area { border: 2px dashed rgba(255, 255, 255, 0.2); border-radius: 15px; padding: 30px; cursor: pointer; margin-bottom: 20px; }
-        .upload-area:hover { border-color: var(--primary); }
-        .btn { background: var(--primary); color: white; border: none; padding: 15px; border-radius: 30px; font-weight: bold; width: 100%; cursor: pointer; font-family: 'Poppins';}
+        :root { --primary: #ff0055; --bg-dark: #0a0a0c; --card-bg: rgba(255, 255, 255, 0.05); }
+        body { margin: 0; font-family: 'Poppins', sans-serif; background: var(--bg-dark); color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; box-sizing: border-box; }
+        .container { width: 100%; max-width: 600px; background: var(--card-bg); border-radius: 20px; padding: 30px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        h1 { color: var(--primary); margin-bottom: 5px; font-size: 2rem; letter-spacing: 1px; }
+        
+        .input-group { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .input-group input, .input-group select { flex: 1; min-width: 120px; padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; font-family: 'Poppins'; font-size: 14px; }
+        
+        .upload-area { border: 2px dashed rgba(255, 255, 255, 0.2); border-radius: 15px; padding: 40px 20px; cursor: pointer; margin-bottom: 20px; transition: 0.3s; background: rgba(0,0,0,0.2); }
+        .upload-area:hover { border-color: var(--primary); background: rgba(255,0,85,0.05); }
+        
+        /* New Estimation Box Design */
+        #estimateArea { display: none; background: rgba(0, 255, 136, 0.1); border: 1px solid rgba(0, 255, 136, 0.3); border-radius: 10px; padding: 15px; margin-bottom: 20px; text-align: left; }
+        .estimate-title { font-size: 12px; color: #4ade80; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; margin-bottom: 5px; }
+        .estimate-values { display: flex; justify-content: space-between; align-items: center; }
+        .old-size { font-size: 14px; color: #888; text-decoration: line-through; }
+        .new-size { font-size: 24px; color: #fff; font-weight: 800; }
+        .saving-badge { background: #ff0055; color: white; padding: 3px 8px; border-radius: 5px; font-size: 11px; font-weight: bold; }
+
+        .btn { background: linear-gradient(45deg, var(--primary), #ff7b00); color: white; border: none; padding: 15px; border-radius: 30px; font-weight: bold; width: 100%; cursor: pointer; font-family: 'Poppins'; font-size: 16px; transition: 0.3s; }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(255,0,85,0.4); }
+        
         #statusArea { display: none; margin-top: 20px; }
+        .loader { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 10px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
         #videoPlayerContainer { display: none; margin-top: 20px; }
-        video { width: 100%; border-radius: 10px; }
+        video { width: 100%; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        
+        @media (max-width: 480px) {
+            .input-group { flex-direction: column; }
+            h1 { font-size: 1.5rem; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>MoGo FM Studio</h1>
-        <p style="color:#aaa; font-size:14px; margin-bottom:30px;">Auto-Convert & Upload to Cloudflare R2</p>
+        <h1>MOGO FM CONVERTER</h1>
+        <p style="color:#aaa; font-size:13px; margin-bottom:25px;">Smart Compression & Auto-Upload to Cloud</p>
 
         <form id="uploadForm">
             <div class="input-group">
-                <input type="text" id="seriesName" placeholder="Series Name (e.g. Mirzapur)" required>
-                <input type="number" id="episodeNum" placeholder="Episode No. (e.g. 1)" required>
-                <input type="text" id="duration" placeholder="Time/Duration (Optional)">
+                <input type="text" id="seriesName" placeholder="Series (e.g. Ojas)" required>
+                <input type="number" id="episodeNum" placeholder="Episode (e.g. 1)" required>
             </div>
-
+            
             <div class="upload-area" onclick="document.getElementById('fileInput').click()">
-                <h3 id="fileLabel">📁 Click to Select Video</h3>
+                <div style="font-size: 40px; margin-bottom: 10px;">🎞️</div>
+                <h3 id="fileLabel" style="margin: 0; font-size: 16px;">Tap to Select Video</h3>
                 <input type="file" id="fileInput" accept="video/*" style="display:none;" required>
             </div>
-            <button type="submit" id="submitBtn" class="btn">Convert & Upload to R2</button>
+
+            <div class="input-group">
+                <select id="quality" required>
+                    <option value="" disabled selected>Select Compression Quality</option>
+                    <option value="1080p">High Quality (1080p - Lossless look)</option>
+                    <option value="720p">Standard HD (720p - Best for Mobile)</option>
+                    <option value="480p">Data Saver (480p - High Compression)</option>
+                </select>
+            </div>
+
+            <div id="estimateArea">
+                <div class="estimate-title">⚡ Estimated Output Size</div>
+                <div class="estimate-values">
+                    <div>
+                        <span class="old-size" id="uiOldSize">0 MB</span>
+                        <div class="new-size" id="uiNewSize">0 MB</div>
+                    </div>
+                    <div class="saving-badge" id="uiSaving">Saving 0%</div>
+                </div>
+            </div>
+
+            <button type="submit" id="submitBtn" class="btn">Compress & Upload to R2</button>
         </form>
 
         <div id="statusArea">
-            <h3 style="color:#ffb703;">Processing...</h3>
-            <p style="font-size: 12px; color: #888;">Converting and uploading to R2. Please don't close the tab.</p>
+            <div class="loader"></div>
+            <h3 style="color:#ffb703; margin-bottom: 5px;">Compressing & Processing...</h3>
+            <p style="font-size: 12px; color: #888;">Do not close or minimize this tab.</p>
         </div>
 
         <div id="resultArea" style="display:none; margin-top:20px;">
-            <p style="color: #4ade80;">✅ Uploaded to R2 & Deleted from Server!</p>
-            <a id="streamLink" href="#" target="_blank" style="color: var(--primary); font-size:12px;">Link will appear here</a>
+            <p style="color: #4ade80; font-weight: bold;">✅ Success! Saved to R2</p>
+            <a id="streamLink" href="#" target="_blank" style="color: var(--primary); font-size:12px; word-break: break-all;">Link will appear here</a>
         </div>
 
         <div id="videoPlayerContainer">
@@ -59,21 +102,85 @@
         const form = document.getElementById('uploadForm');
         const fileInput = document.getElementById('fileInput');
         const fileLabel = document.getElementById('fileLabel');
+        const qualitySelect = document.getElementById('quality');
+        const estimateArea = document.getElementById('estimateArea');
+        
+        let videoDurationSeconds = 0;
+        let originalSizeMB = 0;
 
+        // 1. When video is selected, extract its exact duration
         fileInput.addEventListener('change', (e) => {
-            if(e.target.files.length > 0) fileLabel.textContent = `Selected: ${e.target.files[0].name}`;
+            if(e.target.files.length > 0) {
+                const file = e.target.files[0];
+                originalSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                fileLabel.innerHTML = `<span style="color:#4ade80;">${file.name}</span><br><small style="color:#888;">Original Size: ${originalSizeMB} MB</small>`;
+
+                // Create hidden video element to read duration metadata
+                const videoElement = document.createElement('video');
+                videoElement.preload = 'metadata';
+                videoElement.onloadedmetadata = function() {
+                    window.URL.revokeObjectURL(videoElement.src);
+                    videoDurationSeconds = videoElement.duration;
+                    calculateEstimate(); // Calculate if quality is already selected
+                }
+                videoElement.src = URL.createObjectURL(file);
+            }
         });
 
+        // 2. Recalculate when quality dropdown changes
+        qualitySelect.addEventListener('change', calculateEstimate);
+
+        // 3. The Math behind the estimation
+        function calculateEstimate() {
+            if (videoDurationSeconds === 0) return; // Wait until video is loaded
+            
+            const quality = qualitySelect.value;
+            if (!quality) return;
+
+            // Bitrates configured in your server.js (Video kbps + 128 kbps Audio)
+            let totalKbps = 0;
+            if (quality === '1080p') totalKbps = 4500 + 128; // ~4628 kbps
+            else if (quality === '720p') totalKbps = 2500 + 128; // ~2628 kbps
+            else if (quality === '480p') totalKbps = 1000 + 128; // ~1128 kbps
+
+            // Formula: Size in MB = Duration(seconds) * (kbps / 8192)
+            let estimatedMB = (videoDurationSeconds * (totalKbps / 8192)).toFixed(2);
+
+            // Edge case: If the original video is already highly compressed
+            if (parseFloat(estimatedMB) > parseFloat(originalSizeMB)) {
+                estimatedMB = originalSizeMB; // FFmpeg might not increase size, it will keep it similar
+            }
+
+            const savedMB = (originalSizeMB - estimatedMB).toFixed(2);
+            const savedPercentage = Math.round((savedMB / originalSizeMB) * 100);
+
+            // Update UI
+            document.getElementById('uiOldSize').textContent = `${originalSizeMB} MB`;
+            document.getElementById('uiNewSize').textContent = `~${estimatedMB} MB`;
+            
+            if (savedPercentage > 0) {
+                document.getElementById('uiSaving').textContent = `Saving ${savedPercentage}% Data`;
+                document.getElementById('uiSaving').style.background = '#00e676';
+            } else {
+                document.getElementById('uiSaving').textContent = `Optimal Quality`;
+                document.getElementById('uiSaving').style.background = '#888';
+            }
+
+            estimateArea.style.display = 'block';
+        }
+
+        // 4. Handle Form Submission
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            document.getElementById('submitBtn').style.display = 'none';
+            document.getElementById('uploadForm').style.display = 'none';
             document.getElementById('statusArea').style.display = 'block';
 
             const formData = new FormData();
             formData.append('video', fileInput.files[0]);
             formData.append('series', document.getElementById('seriesName').value);
             formData.append('episode', document.getElementById('episodeNum').value);
+            formData.append('quality', qualitySelect.value);
 
             try {
                 const response = await fetch('/upload', { method: 'POST', body: formData });
