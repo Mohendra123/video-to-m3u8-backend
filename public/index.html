@@ -195,16 +195,12 @@
                     document.getElementById('statusArea').style.display = 'none';
                     document.getElementById('resultArea').style.display = 'block';
                     
-                    const link = document.getElementById('streamLink');
-                    link.href = data.stream_url;
-                    link.textContent = data.stream_url;
+                    // FIXED: Removed duplicate declaration of 'link' variable
                     const link = document.getElementById('streamLink');
                     link.href = data.stream_url;
                     link.textContent = data.stream_url;
                     
-          
                     document.getElementById('ffmpegCommandText').textContent = data.ffmpeg_cmd;
-                    
 
                     const videoPlayer = document.getElementById('videoPlayer');
                     document.getElementById('videoPlayerContainer').style.display = 'block';
