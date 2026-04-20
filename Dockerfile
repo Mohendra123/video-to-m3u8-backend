@@ -1,6 +1,5 @@
-FROM node:18-bullseye-slim
+FROM node:22-bullseye-slim
 
-# FFmpeg इंस्टॉल करें
 RUN apt-get update && \
     apt-get install -y ffmpeg && \
     apt-get clean && \
