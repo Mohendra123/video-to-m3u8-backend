@@ -36,10 +36,10 @@ app.use(express.static('public'));
 
 // Optimized R2 Upload
 async function uploadToR2(localFolder, r2Path) {
-    const files = fs.readdirSync(localFolder);
+    const files = await fs.promises.readdir(localFolder);
     const uploadPromises = files.map(async (file) => {
         const filePath = path.join(localFolder, file);
-        const fileContent = fs.readFileSync(filePath);
+        const fileContent = await fs.promises.readFile(filePath);
         const contentType = file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/MP2T';
 
         return s3.send(new PutObjectCommand({
@@ -52,14 +52,29 @@ async function uploadToR2(localFolder, r2Path) {
     await Promise.all(uploadPromises);
 }
 
+// Helper to asynchronously clean up files without blocking the event loop
+async function cleanUpLocalFiles(videoPath, hlsFolder) {
+    try {
+        if (fs.existsSync(videoPath)) await fs.promises.unlink(videoPath);
+        if (fs.existsSync(hlsFolder)) await fs.promises.rm(hlsFolder, { recursive: true, force: true });
+    } catch (err) {
+        console.error('Cleanup Error:', err);
+    }
+}
+
 // Upload & Process Route
-app.post('/upload', upload.single('video'), (req, res) => {
+app.post('/upload', upload.single('video'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No video provided' });
 
     const videoPath = req.file.path;
     const folderName = req.file.filename; 
     const hlsFolder = path.join(__dirname, 'output', folderName);
-    fs.mkdirSync(hlsFolder, { recursive: true });
+    
+    try {
+        await fs.promises.mkdir(hlsFolder, { recursive: true });
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to create output directory' });
+    }
 
     const seriesName = (req.body.series || 'Series').replace(/[^a-zA-Z0-9]/g, "_");
     const episodeNum = `Ep_${req.body.episode || '0'}`;
@@ -71,7 +86,7 @@ app.post('/upload', upload.single('video'), (req, res) => {
     if (quality === '1080p') { scale = '-2:1080'; bitrate = '4500k'; }
     if (quality === '480p') { scale = '-2:480'; bitrate = '1000k'; }
 
-    const ffmpegCommandUsed = `ffmpeg -i input.mp4 -vf scale=${scale} -b:v ${bitrate} -c:a aac -b:a 128k -f hls playlist.m3u8`;
+    const ffmpegCommandUsed = `ffmpeg -i input.mp4 -vf scale=${scale} -b:v ${bitrate} -c:a aac -b:a 128k -profile:v baseline -level 3.0 -start_number 0 -hls_time 10 -hls_list_size 0 -f hls playlist.m3u8`;
 
     ffmpeg(videoPath)
         .addOptions([
@@ -84,9 +99,7 @@ app.post('/upload', upload.single('video'), (req, res) => {
         .on('end', async () => {
             try {
                 await uploadToR2(hlsFolder, r2FolderPath);
-                // Clean up files
-                if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
-                fs.rmSync(hlsFolder, { recursive: true, force: true });
+                await cleanUpLocalFiles(videoPath, hlsFolder); // Optimized async cleanup
 
                 res.json({
                     status: 'Success',
@@ -94,11 +107,12 @@ app.post('/upload', upload.single('video'), (req, res) => {
                     ffmpeg_cmd: ffmpegCommandUsed
                 });
             } catch (err) {
+                await cleanUpLocalFiles(videoPath, hlsFolder);
                 res.status(500).json({ status: 'Error', message: 'R2 Upload Failed' });
             }
         })
-        .on('error', (err) => {
-            if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+        .on('error', async (err) => {
+            await cleanUpLocalFiles(videoPath, hlsFolder);
             res.status(500).json({ status: 'Error', message: err.message });
         })
         .run();
