@@ -99,32 +99,36 @@ app.post('/upload', upload.single('video'), (req, res) => {
             console.log('Conversion Done! Uploading to R2...');
             try {
                 await uploadToR2(hlsFolder, r2FolderPath);
-                fs.unlinkSync(videoPath); 
-                fs.rmSync(hlsFolder, { recursive: true, force: true }); 
                 
-                const finalStreamUrl = `${PUBLIC_URL}/${r2FolderPath}/playlist.m3u8`;
-                .on('end', async () => {
-            console.log('Conversion Done! Uploading to R2...');
-            try {
-                await uploadToR2(hlsFolder, r2FolderPath);
-                fs.unlinkSync(videoPath); 
-                fs.rmSync(hlsFolder, { recursive: true, force: true }); 
+                // Cleanup local files
+                if(fs.existsSync(videoPath)) fs.unlinkSync(videoPath); 
+                if(fs.existsSync(hlsFolder)) fs.rmSync(hlsFolder, { recursive: true, force: true }); 
                 
                 const finalStreamUrl = `${PUBLIC_URL}/${r2FolderPath}/playlist.m3u8`;
                 
-                // --- FFmpeg Command String बनाना (UI में दिखाने के लिए) ---
+                // --- FFmpeg Command String banana (UI mein dikhane ke liye) ---
                 const ffmpegLog = `ffmpeg -i "${req.file.originalname}" -profile:v baseline -level 3.0 -hls_time 10 -vf scale=${scaleOpt} -b:v ${bitrateOpt} -c:a aac -b:a 128k playlist.m3u8`;
 
                 res.json({
                     status: 'Success',
                     message: 'Video Compressed, Converted & Saved to R2!',
                     stream_url: finalStreamUrl,
-                    ffmpeg_cmd: ffmpegLog // <--- यह नई लाइन जोड़ी गई है
+                    ffmpeg_cmd: ffmpegLog
                 });
             } catch (error) {
                 console.error('R2 Upload Error:', error);
                 res.status(500).json({ status: 'Error', message: 'Upload to R2 Failed' });
             }
         })
+        .on('error', (err) => {
+            console.error('FFmpeg Processing Error:', err.message);
+            res.status(500).json({ status: 'Error', message: 'FFmpeg Processing Failed' });
+            
+            // File cleanup on error
+            if(fs.existsSync(videoPath)) fs.unlinkSync(videoPath); 
+            if(fs.existsSync(hlsFolder)) fs.rmSync(hlsFolder, { recursive: true, force: true });
+        })
+        .run(); // <--- IMPORTNAT: Ye line missing thi, ye hi actual command run karti hai
+});
 
 app.listen(PORT, () => { console.log(`Server running on port ${PORT}`); });
