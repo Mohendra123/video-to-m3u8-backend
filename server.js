@@ -11,7 +11,7 @@ app.use(cors());
 
 const PORT = process.env.PORT || 3000;
 
-// Cloudflare R2 Setup (Railway Variables से Data लेगा)
+// Cloudflare R2 Setup
 const s3 = new S3Client({
     region: 'auto',
     endpoint: process.env.R2_ENDPOINT,
@@ -21,7 +21,7 @@ const s3 = new S3Client({
     }
 });
 const BUCKET_NAME = process.env.R2_BUCKET_NAME;
-const PUBLIC_URL = process.env.R2_PUBLIC_URL; // आपका R2 Public Link
+const PUBLIC_URL = process.env.R2_PUBLIC_URL; 
 
 // Folders
 const uploadDir = path.join(__dirname, 'uploads');
@@ -35,14 +35,11 @@ if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir);
 const upload = multer({ dest: 'uploads/' });
 app.use(express.static(publicDir));
 
-// R2 में फोल्डर अपलोड करने का फंक्शन
 async function uploadToR2(localFolder, r2Path) {
     const files = fs.readdirSync(localFolder);
     for (const file of files) {
         const filePath = path.join(localFolder, file);
         const fileContent = fs.readFileSync(filePath);
-        
-        // Content-Type सेट करना जरूरी है ताकि ब्राउज़र उसे डाउनलोड करने के बजाय Play करे
         const contentType = file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/MP2T';
 
         await s3.send(new PutObjectCommand({
@@ -54,7 +51,7 @@ async function uploadToR2(localFolder, r2Path) {
     }
 }
 
-// Video Upload API
+// Video Upload & Smart Compression API
 app.post('/upload', upload.single('video'), (req, res) => {
     if (!req.file) return res.status(400).send('No video uploaded');
 
@@ -62,43 +59,55 @@ app.post('/upload', upload.single('video'), (req, res) => {
     const folderName = req.file.filename; 
     const hlsFolder = path.join(outputDir, folderName);
     fs.mkdirSync(hlsFolder, { recursive: true });
-    
     const m3u8Path = path.join(hlsFolder, 'playlist.m3u8');
 
-    // UI से आया डेटा (Series, Episode)
     const seriesName = req.body.series ? req.body.series.replace(/[^a-zA-Z0-9]/g, "_") : 'Unknown_Series';
     const episodeNum = req.body.episode ? `Ep_${req.body.episode}` : 'Ep_0';
-    const r2FolderPath = `${seriesName}/${episodeNum}`; // Cloudflare में ऐसा फोल्डर बनेगा
+    const quality = req.body.quality || '720p'; // Default to 720p
+    const r2FolderPath = `${seriesName}/${episodeNum}`; 
 
-    console.log(`Processing: ${seriesName} - ${episodeNum}`);
+    // --- Compression Logic ---
+    let scaleOpt = '-2:720'; // Default 720p resolution
+    let bitrateOpt = '2500k'; // Default moderate bitrate
+
+    if (quality === '1080p') {
+        scaleOpt = '-2:1080';
+        bitrateOpt = '4500k'; // High quality, larger file
+    } else if (quality === '480p') {
+        scaleOpt = '-2:480';
+        bitrateOpt = '1000k'; // Highly compressed, small file
+    }
+
+    console.log(`Processing: ${seriesName} - ${episodeNum} | Quality: ${quality}`);
 
     ffmpeg(videoPath)
         .addOptions([
-            '-profile:v baseline', '-level 3.0', '-start_number 0',
-            '-hls_time 10', '-hls_list_size 0', '-f hls'
+            '-profile:v baseline', 
+            '-level 3.0', 
+            '-start_number 0',
+            '-hls_time 10', 
+            '-hls_list_size 0', 
+            '-f hls',
+            // Applying Compression Settings here:
+            `-vf scale=${scaleOpt}`, 
+            `-b:v ${bitrateOpt}`,
+            '-c:a aac', // Ensure audio is compatible
+            '-b:a 128k' // Compress audio slightly for web
         ])
         .output(m3u8Path)
         .on('end', async () => {
-            console.log('FFmpeg Conversion Done! Uploading to R2...');
+            console.log('Conversion Done! Uploading to R2...');
             try {
-                // 1. R2 में अपलोड करें
                 await uploadToR2(hlsFolder, r2FolderPath);
-                console.log('Successfully uploaded to R2!');
-
-                // 2. Railway से डिलीट करें (Auto-Delete)
-                fs.unlinkSync(videoPath); // ओरिजिनल MP4 डिलीट
-                fs.rmSync(hlsFolder, { recursive: true, force: true }); // M3U8 फोल्डर डिलीट
-                console.log('Local files deleted from Railway.');
-
-                // 3. Frontend को R2 का फाइनल लिंक भेजें
-                const finalStreamUrl = `${PUBLIC_URL}/${r2FolderPath}/playlist.m3u8`;
+                fs.unlinkSync(videoPath); 
+                fs.rmSync(hlsFolder, { recursive: true, force: true }); 
                 
+                const finalStreamUrl = `${PUBLIC_URL}/${r2FolderPath}/playlist.m3u8`;
                 res.json({
                     status: 'Success',
-                    message: 'Video Converted and Saved to Cloudflare R2!',
+                    message: 'Video Compressed, Converted & Saved to R2!',
                     stream_url: finalStreamUrl
                 });
-
             } catch (error) {
                 console.error('R2 Upload Error:', error);
                 res.status(500).json({ status: 'Error', message: 'Upload to R2 Failed' });
