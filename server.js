@@ -11,7 +11,7 @@ app.use(cors());
 
 const PORT = process.env.PORT || 3000;
 
-// Cloudflare R2 Setup
+// Cloudflare R2 Client Setup
 const s3 = new S3Client({
     region: 'auto',
     endpoint: process.env.R2_ENDPOINT,
@@ -20,104 +20,88 @@ const s3 = new S3Client({
         secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
     }
 });
+
 const BUCKET_NAME = process.env.R2_BUCKET_NAME;
 const PUBLIC_URL = process.env.R2_PUBLIC_URL; 
 
-// Folders
-const uploadDir = path.join(__dirname, 'uploads');
-const outputDir = path.join(__dirname, 'output');
-const publicDir = path.join(__dirname, 'public');
-
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
-if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
-if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir);
+// Folder structure creation
+const dirs = ['uploads', 'output', 'public'];
+dirs.forEach(dir => {
+    const dirPath = path.join(__dirname, dir);
+    if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+});
 
 const upload = multer({ dest: 'uploads/' });
-app.use(express.static(publicDir));
+app.use(express.static('public'));
 
+// Optimized R2 Upload
 async function uploadToR2(localFolder, r2Path) {
     const files = fs.readdirSync(localFolder);
-    for (const file of files) {
+    const uploadPromises = files.map(async (file) => {
         const filePath = path.join(localFolder, file);
         const fileContent = fs.readFileSync(filePath);
         const contentType = file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/MP2T';
 
-        await s3.send(new PutObjectCommand({
+        return s3.send(new PutObjectCommand({
             Bucket: BUCKET_NAME,
             Key: `${r2Path}/${file}`,
             Body: fileContent,
             ContentType: contentType
         }));
-    }
+    });
+    await Promise.all(uploadPromises);
 }
 
-// Video Upload & Smart Compression API
+// Upload & Process Route
 app.post('/upload', upload.single('video'), (req, res) => {
-    if (!req.file) return res.status(400).send('No video uploaded');
+    if (!req.file) return res.status(400).json({ error: 'No video provided' });
 
     const videoPath = req.file.path;
     const folderName = req.file.filename; 
-    const hlsFolder = path.join(outputDir, folderName);
+    const hlsFolder = path.join(__dirname, 'output', folderName);
     fs.mkdirSync(hlsFolder, { recursive: true });
-    const m3u8Path = path.join(hlsFolder, 'playlist.m3u8');
 
-    const seriesName = req.body.series ? req.body.series.replace(/[^a-zA-Z0-9]/g, "_") : 'Unknown_Series';
-    const episodeNum = req.body.episode ? `Ep_${req.body.episode}` : 'Ep_0';
-    const quality = req.body.quality || '720p'; // Default to 720p
+    const seriesName = (req.body.series || 'Series').replace(/[^a-zA-Z0-9]/g, "_");
+    const episodeNum = `Ep_${req.body.episode || '0'}`;
+    const quality = req.body.quality || '720p';
     const r2FolderPath = `${seriesName}/${episodeNum}`; 
 
-    // --- Compression Logic ---
-    let scaleOpt = '-2:720'; // Default 720p resolution
-    let bitrateOpt = '2500k'; // Default moderate bitrate
+    // Compression profiles
+    let scale = '-2:720', bitrate = '2500k';
+    if (quality === '1080p') { scale = '-2:1080'; bitrate = '4500k'; }
+    if (quality === '480p') { scale = '-2:480'; bitrate = '1000k'; }
 
-    if (quality === '1080p') {
-        scaleOpt = '-2:1080';
-        bitrateOpt = '4500k'; // High quality, larger file
-    } else if (quality === '480p') {
-        scaleOpt = '-2:480';
-        bitrateOpt = '1000k'; // Highly compressed, small file
-    }
-
-    console.log(`Processing: ${seriesName} - ${episodeNum} | Quality: ${quality}`);
+    const ffmpegCommandUsed = `ffmpeg -i input.mp4 -vf scale=${scale} -b:v ${bitrate} -c:a aac -b:a 128k -f hls playlist.m3u8`;
 
     ffmpeg(videoPath)
         .addOptions([
-            '-profile:v baseline', 
-            '-level 3.0', 
-            '-start_number 0',
-            '-hls_time 10', 
-            '-hls_list_size 0', 
-            '-f hls',
-            // Applying Compression Settings here:
-            `-vf scale=${scaleOpt}`, 
-            `-b:v ${bitrateOpt}`,
-            '-c:a aac', // Ensure audio is compatible
-            '-b:a 128k' // Compress audio slightly for web
+            '-profile:v baseline', '-level 3.0', '-start_number 0',
+            '-hls_time 10', '-hls_list_size 0', '-f hls',
+            `-vf scale=${scale}`, `-b:v ${bitrate}`,
+            '-c:a aac', '-b:a 128k'
         ])
-        .output(m3u8Path)
+        .output(path.join(hlsFolder, 'playlist.m3u8'))
         .on('end', async () => {
-            console.log('Conversion Done! Uploading to R2...');
             try {
                 await uploadToR2(hlsFolder, r2FolderPath);
-                fs.unlinkSync(videoPath); 
-                fs.rmSync(hlsFolder, { recursive: true, force: true }); 
-                
-                const finalStreamUrl = `${PUBLIC_URL}/${r2FolderPath}/playlist.m3u8`;
+                // Clean up files
+                if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+                fs.rmSync(hlsFolder, { recursive: true, force: true });
+
                 res.json({
                     status: 'Success',
-                    message: 'Video Compressed, Converted & Saved to R2!',
-                    stream_url: finalStreamUrl
+                    stream_url: `${PUBLIC_URL}/${r2FolderPath}/playlist.m3u8`,
+                    ffmpeg_cmd: ffmpegCommandUsed
                 });
-            } catch (error) {
-                console.error('R2 Upload Error:', error);
-                res.status(500).json({ status: 'Error', message: 'Upload to R2 Failed' });
+            } catch (err) {
+                res.status(500).json({ status: 'Error', message: 'R2 Upload Failed' });
             }
         })
         .on('error', (err) => {
-            console.error('FFmpeg Error:', err);
+            if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
             res.status(500).json({ status: 'Error', message: err.message });
         })
         .run();
 });
 
-app.listen(PORT, () => { console.log(`Server running on port ${PORT}`); });
+app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
